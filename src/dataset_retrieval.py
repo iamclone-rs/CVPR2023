@@ -7,6 +7,7 @@ from PIL import Image, ImageOps
 
 CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073]
 CLIP_STD = [0.26862954, 0.26130258, 0.27577711]
+WHITE_RGB = (255, 255, 255)
 
 unseen_classes = [
     "bat",
@@ -91,6 +92,17 @@ class Sketchy(torch.utils.data.Dataset):
     def photo_id_from_path(photo_path):
         return os.path.splitext(os.path.basename(photo_path))[0]
 
+    @staticmethod
+    def load_rgb_image(path):
+        image = Image.open(path)
+        if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+            image = image.convert('RGBA')
+            canvas = Image.new('RGBA', image.size, WHITE_RGB + (255,))
+            image = Image.alpha_composite(canvas, image).convert('RGB')
+        else:
+            image = image.convert('RGB')
+        return image
+
     def sample_positive_photo(self, category, filename):
         if self.opts.match_instance_by_stem:
             for sketch_stem in self.candidate_instance_stems(filename):
@@ -121,9 +133,9 @@ class Sketchy(torch.utils.data.Dataset):
         neg_path = self.sample_negative_photo(category, img_path)
         photo_id = self.photo_id_from_path(img_path)
 
-        sk_data  = ImageOps.pad(Image.open(sk_path).convert('RGB'),  size=(self.opts.max_size, self.opts.max_size))
-        img_data = ImageOps.pad(Image.open(img_path).convert('RGB'), size=(self.opts.max_size, self.opts.max_size))
-        neg_data = ImageOps.pad(Image.open(neg_path).convert('RGB'), size=(self.opts.max_size, self.opts.max_size))
+        sk_data  = ImageOps.pad(self.load_rgb_image(sk_path),  size=(self.opts.max_size, self.opts.max_size), color=WHITE_RGB)
+        img_data = ImageOps.pad(self.load_rgb_image(img_path), size=(self.opts.max_size, self.opts.max_size), color=WHITE_RGB)
+        neg_data = ImageOps.pad(self.load_rgb_image(neg_path), size=(self.opts.max_size, self.opts.max_size), color=WHITE_RGB)
 
         sk_tensor  = self.transform(sk_data)
         img_tensor = self.transform(img_data)
