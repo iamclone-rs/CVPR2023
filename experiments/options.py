@@ -38,6 +38,7 @@ parser.add_argument('--no_match_instance_by_stem', dest='match_instance_by_stem'
 # ----------------------
 parser.add_argument('--prompt_dim', type=int, default=768)
 parser.add_argument('--n_prompts', type=int, default=3)
+parser.add_argument('--prompt_init_std', type=float, default=0.02)
 
 parser.set_defaults(match_instance_by_stem=True)
 

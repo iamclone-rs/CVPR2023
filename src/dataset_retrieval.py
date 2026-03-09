@@ -5,6 +5,9 @@ import torch
 from torchvision import transforms
 from PIL import Image, ImageOps
 
+CLIP_MEAN = [0.48145466, 0.4578275, 0.40821073]
+CLIP_STD = [0.26862954, 0.26130258, 0.27577711]
+
 unseen_classes = [
     "bat",
     "cabin",
@@ -135,9 +138,8 @@ class Sketchy(torch.utils.data.Dataset):
     @staticmethod
     def data_transform(opts):
         dataset_transforms = transforms.Compose([
-            transforms.Resize((opts.max_size, opts.max_size)),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transforms.Normalize(mean=CLIP_MEAN, std=CLIP_STD)
         ])
         return dataset_transforms
 

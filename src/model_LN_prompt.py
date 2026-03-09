@@ -72,7 +72,8 @@ class Model(pl.LightningModule):
         unfreeze_layer_norms(self.clip.visual)
 
         # FG-SBIR uses a shared visual prompt for sketch and photo branches.
-        self.common_prompt = nn.Parameter(torch.randn(self.opts.n_prompts, self.opts.prompt_dim))
+        self.common_prompt = nn.Parameter(
+            self.opts.prompt_init_std * torch.randn(self.opts.n_prompts, self.opts.prompt_dim))
 
         self.train_categories = sorted(categories)
         self.category_to_idx = {category: idx for idx, category in enumerate(self.train_categories)}
@@ -245,6 +246,8 @@ class Model(pl.LightningModule):
 
         top1 = acc_at_1.mean()
         top5 = acc_at_5.mean()
+        self.log('acc1', top1)
+        self.log('acc5', top5)
         self.log('Acc@1', top1)
         self.log('Acc@5', top5)
         if self.global_step > 0:

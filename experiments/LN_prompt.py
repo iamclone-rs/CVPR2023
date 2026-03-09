@@ -22,16 +22,26 @@ if __name__ == '__main__':
     train_dataset = Sketchy(opts, dataset_transforms, mode='train', return_orig=False)
     val_dataset = Sketchy(opts, dataset_transforms, mode='val', used_cat=train_dataset.all_categories, return_orig=False)
 
-    train_loader = DataLoader(dataset=train_dataset, batch_size=opts.batch_size, num_workers=opts.workers)
-    val_loader = DataLoader(dataset=val_dataset, batch_size=opts.batch_size, num_workers=opts.workers)
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_size=opts.batch_size,
+        num_workers=opts.workers,
+        shuffle=True,
+        drop_last=False)
+    val_loader = DataLoader(
+        dataset=val_dataset,
+        batch_size=opts.batch_size,
+        num_workers=opts.workers,
+        shuffle=False,
+        drop_last=False)
 
     logger = TensorBoardLogger('tb_logs', name=opts.exp_name)
 
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss',
+        monitor='acc1',
         dirpath='saved_models/%s'%opts.exp_name,
-        filename="{epoch:02d}-{val_loss:.2f}",
-        mode='min',
+        filename="{epoch:02d}-{acc1:.4f}",
+        mode='max',
         save_last=True)
 
     ckpt_path = os.path.join('saved_models', opts.exp_name, 'last.ckpt')
