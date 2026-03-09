@@ -155,6 +155,8 @@ class Model(pl.LightningModule):
         sk_feat = self.forward(sk_tensor, dtype='sketch')
         neg_feat = self.forward(neg_tensor, dtype='image')
 
+        pos_sim = F.cosine_similarity(sk_feat, img_feat)
+        neg_sim = F.cosine_similarity(sk_feat, neg_feat)
         triplet_loss = self.loss_fn(sk_feat, img_feat, neg_feat)
         sk_cls_loss = self.classification_loss(sk_feat, labels)
         img_cls_loss = self.classification_loss(img_feat, labels)
@@ -172,7 +174,28 @@ class Model(pl.LightningModule):
         self.log('train_cls_loss', cls_loss)
         self.log('train_patch_shuffle_loss', patch_shuffle_loss)
         self.log('train_loss', loss)
+        self.log('train_pos_sim', pos_sim.mean(), on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
+        self.log('train_neg_sim', neg_sim.mean(), on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
+        self.log('train_margin_gap', (pos_sim - neg_sim).mean(), on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
         return loss
+
+    def on_train_epoch_end(self):
+        metrics = self.trainer.callback_metrics
+        train_triplet = metrics.get('train_triplet_loss')
+        train_loss = metrics.get('train_loss')
+        train_pos = metrics.get('train_pos_sim')
+        train_neg = metrics.get('train_neg_sim')
+        train_gap = metrics.get('train_margin_gap')
+        if None not in (train_triplet, train_loss, train_pos, train_neg, train_gap):
+            print(
+                'Train: loss={:.4f}, triplet={:.4f}, pos_sim={:.4f}, neg_sim={:.4f}, gap={:.4f}'.format(
+                    train_loss.item(),
+                    train_triplet.item(),
+                    train_pos.item(),
+                    train_neg.item(),
+                    train_gap.item(),
+                )
+            )
 
     def on_validation_epoch_start(self):
         self.validation_outputs = []
