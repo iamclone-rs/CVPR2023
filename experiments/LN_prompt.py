@@ -43,7 +43,9 @@ if __name__ == '__main__':
     else:
         print ('resuming training from %s'%ckpt_path)
 
-    trainer = Trainer(gpus=-1,
+    accelerator = 'gpu' if torch.cuda.is_available() else 'cpu'
+    trainer = Trainer(accelerator=accelerator,
+        devices=1,
         min_epochs=1, max_epochs=60,
         benchmark=True,
         logger=logger,
@@ -53,7 +55,6 @@ if __name__ == '__main__':
         # val_check_interval=10, 
         # accumulate_grad_batches=1,
         check_val_every_n_epoch=1,
-        resume_from_checkpoint=ckpt_path,
         callbacks=[checkpoint_callback]
     )
 
@@ -65,4 +66,4 @@ if __name__ == '__main__':
         model = Model.load_from_checkpoint(ckpt_path, categories=model_categories)
 
     print ('beginning training...good luck...')
-    trainer.fit(model, train_loader, val_loader)
+    trainer.fit(model, train_loader, val_loader, ckpt_path=ckpt_path)

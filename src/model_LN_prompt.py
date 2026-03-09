@@ -86,6 +86,7 @@ class Model(pl.LightningModule):
             distance_function=self.distance_fn, margin=self.opts.patch_shuffle_margin)
 
         self.best_metric = -1e3
+        self.validation_outputs = []
 
     def configure_optimizers(self):
         visual_ln_params = [param for param in self.clip.visual.parameters() if param.requires_grad]
@@ -172,6 +173,9 @@ class Model(pl.LightningModule):
         self.log('train_loss', loss)
         return loss
 
+    def on_validation_epoch_start(self):
+        self.validation_outputs = []
+
     def validation_step(self, batch, batch_idx):
         sk_tensor, img_tensor, neg_tensor, category = batch[:4]
         query_instance_id = batch[5]
@@ -182,19 +186,26 @@ class Model(pl.LightningModule):
         neg_feat = self.forward(neg_tensor, dtype='image')
 
         triplet_loss = self.loss_fn(sk_feat, img_feat, neg_feat)
-        self.log('val_loss', triplet_loss)
-        return sk_feat, img_feat, category, query_instance_id, photo_id, img_path
+        self.log('val_loss', triplet_loss, prog_bar=False, on_step=False, on_epoch=True)
+        self.validation_outputs.append((
+            sk_feat.detach().cpu(),
+            img_feat.detach().cpu(),
+            list(category),
+            list(query_instance_id),
+            list(photo_id),
+            list(img_path),
+        ))
 
-    def validation_epoch_end(self, val_step_outputs):
-        Len = len(val_step_outputs)
+    def on_validation_epoch_end(self):
+        Len = len(self.validation_outputs)
         if Len == 0:
             return
-        query_feat_all = torch.cat([val_step_outputs[i][0] for i in range(Len)])
-        gallery_feat_all = torch.cat([val_step_outputs[i][1] for i in range(Len)])
-        all_category = np.array(sum([list(val_step_outputs[i][2]) for i in range(Len)], []))
-        all_query_instance_id = sum([list(val_step_outputs[i][3]) for i in range(Len)], [])
-        all_photo_id = sum([list(val_step_outputs[i][4]) for i in range(Len)], [])
-        all_img_path = sum([list(val_step_outputs[i][5]) for i in range(Len)], [])
+        query_feat_all = torch.cat([self.validation_outputs[i][0] for i in range(Len)])
+        gallery_feat_all = torch.cat([self.validation_outputs[i][1] for i in range(Len)])
+        all_category = np.array(sum([self.validation_outputs[i][2] for i in range(Len)], []))
+        all_query_instance_id = sum([self.validation_outputs[i][3] for i in range(Len)], [])
+        all_photo_id = sum([self.validation_outputs[i][4] for i in range(Len)], [])
+        all_img_path = sum([self.validation_outputs[i][5] for i in range(Len)], [])
 
         unique_gallery_indices = []
         seen_gallery_keys = set()
@@ -239,3 +250,4 @@ class Model(pl.LightningModule):
         if self.global_step > 0:
             self.best_metric = self.best_metric if (self.best_metric > top1.item()) else top1.item()
         print('Acc@1: {:.4f}, Acc@5: {:.4f}'.format(top1.item(), top5.item()))
+        self.validation_outputs = []
