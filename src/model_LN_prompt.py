@@ -89,6 +89,39 @@ class Model(pl.LightningModule):
         self.best_metric = -1e3
         self.validation_outputs = []
 
+    def batch_hard_triplet_loss(self, sk_feat, img_feat, categories, photo_ids):
+        sk_feat = F.normalize(sk_feat, dim=-1)
+        img_feat = F.normalize(img_feat, dim=-1)
+
+        similarities = torch.matmul(sk_feat, img_feat.t())
+        distances = 1.0 - similarities
+        pos_dist = distances.diagonal()
+        pos_sim = similarities.diagonal()
+
+        same_category = torch.tensor(
+            [[left == right for right in categories] for left in categories],
+            device=self.device,
+            dtype=torch.bool,
+        )
+        different_instance = torch.tensor(
+            [[left != right for right in photo_ids] for left in photo_ids],
+            device=self.device,
+            dtype=torch.bool,
+        )
+        valid_negative_mask = same_category & different_instance
+
+        masked_negative_distances = distances.masked_fill(~valid_negative_mask, float('inf'))
+        hard_neg_dist, hard_neg_idx = masked_negative_distances.min(dim=1)
+        valid_rows = torch.isfinite(hard_neg_dist)
+        if not valid_rows.any():
+            zero = sk_feat.new_zeros(())
+            return zero, pos_sim.mean(), zero
+
+        batch_indices = torch.arange(sk_feat.shape[0], device=self.device)
+        hard_neg_sim = similarities[batch_indices, hard_neg_idx]
+        triplet_loss = F.relu(pos_dist[valid_rows] - hard_neg_dist[valid_rows] + self.opts.triplet_margin).mean()
+        return triplet_loss, pos_sim[valid_rows].mean(), hard_neg_sim[valid_rows].mean()
+
     def configure_optimizers(self):
         visual_ln_params = [param for param in self.clip.visual.parameters() if param.requires_grad]
         optimizer = torch.optim.Adam([
@@ -151,13 +184,16 @@ class Model(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         sk_tensor, img_tensor, neg_tensor, category = batch[:4]
         labels = self.category_labels(category)
+        photo_id = batch[6]
         img_feat = self.forward(img_tensor, dtype='image')
         sk_feat = self.forward(sk_tensor, dtype='sketch')
-        neg_feat = self.forward(neg_tensor, dtype='image')
-
-        pos_sim = F.cosine_similarity(sk_feat, img_feat)
-        neg_sim = F.cosine_similarity(sk_feat, neg_feat)
-        triplet_loss = self.loss_fn(sk_feat, img_feat, neg_feat)
+        if self.opts.triplet_mode == 'batch_hard':
+            triplet_loss, pos_sim, neg_sim = self.batch_hard_triplet_loss(sk_feat, img_feat, list(category), list(photo_id))
+        else:
+            neg_feat = self.forward(neg_tensor, dtype='image')
+            pos_sim = F.cosine_similarity(sk_feat, img_feat)
+            neg_sim = F.cosine_similarity(sk_feat, neg_feat)
+            triplet_loss = self.loss_fn(sk_feat, img_feat, neg_feat)
         sk_cls_loss = self.classification_loss(sk_feat, labels)
         img_cls_loss = self.classification_loss(img_feat, labels)
         cls_loss = sk_cls_loss + img_cls_loss
@@ -168,12 +204,12 @@ class Model(pl.LightningModule):
             + self.opts.patch_shuffle_loss_weight * patch_shuffle_loss
         )
 
-        self.log('train_triplet_loss', triplet_loss)
-        self.log('train_sketch_cls_loss', sk_cls_loss)
-        self.log('train_image_cls_loss', img_cls_loss)
-        self.log('train_cls_loss', cls_loss)
-        self.log('train_patch_shuffle_loss', patch_shuffle_loss)
-        self.log('train_loss', loss)
+        self.log('train_triplet_loss', triplet_loss, on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
+        self.log('train_sketch_cls_loss', sk_cls_loss, on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
+        self.log('train_image_cls_loss', img_cls_loss, on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
+        self.log('train_cls_loss', cls_loss, on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
+        self.log('train_patch_shuffle_loss', patch_shuffle_loss, on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
+        self.log('train_loss', loss, on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
         self.log('train_pos_sim', pos_sim.mean(), on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
         self.log('train_neg_sim', neg_sim.mean(), on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
         self.log('train_margin_gap', (pos_sim - neg_sim).mean(), on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
@@ -210,7 +246,7 @@ class Model(pl.LightningModule):
         neg_feat = self.forward(neg_tensor, dtype='image')
 
         triplet_loss = self.loss_fn(sk_feat, img_feat, neg_feat)
-        self.log('val_loss', triplet_loss, prog_bar=False, on_step=False, on_epoch=True)
+        self.log('val_loss', triplet_loss, prog_bar=False, on_step=False, on_epoch=True, batch_size=sk_tensor.shape[0])
         self.validation_outputs.append((
             sk_feat.detach().cpu(),
             img_feat.detach().cpu(),

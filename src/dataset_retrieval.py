@@ -1,5 +1,6 @@
 import os
 import glob
+import math
 import numpy as np
 import torch
 from torchvision import transforms
@@ -70,6 +71,7 @@ class Sketchy(torch.utils.data.Dataset):
                 photo_stem = os.path.splitext(os.path.basename(photo_path))[0]
                 self.photo_stem_to_paths[category].setdefault(photo_stem, []).append(photo_path)
         self.apply_debug_filters()
+        self.build_index_maps()
 
     def apply_debug_filters(self):
         debug_category = getattr(self.opts, 'debug_category', '').strip()
@@ -107,7 +109,18 @@ class Sketchy(torch.utils.data.Dataset):
                 sketches_by_category[category].append(sketch_path)
         filtered_sketches_path = []
         for category in self.all_categories:
-            sketch_paths = sketches_by_category[category]
+            sketch_paths = []
+            for sketch_path in sketches_by_category[category]:
+                filename = os.path.basename(sketch_path)
+                if not self.opts.match_instance_by_stem:
+                    sketch_paths.append(sketch_path)
+                    continue
+                has_positive = any(
+                    sketch_stem in filtered_photo_stem_to_paths[category]
+                    for sketch_stem in self.candidate_instance_stems(filename)
+                )
+                if has_positive:
+                    sketch_paths.append(sketch_path)
             if debug_num_sketches_per_category > 0:
                 sketch_paths = sketch_paths[:debug_num_sketches_per_category]
             filtered_sketches_path.extend(sketch_paths)
@@ -115,6 +128,16 @@ class Sketchy(torch.utils.data.Dataset):
         self.all_sketches_path = filtered_sketches_path
         self.all_photos_path = filtered_photos_path
         self.photo_stem_to_paths = filtered_photo_stem_to_paths
+
+    def build_index_maps(self):
+        self.category_to_indices = {category: [] for category in self.all_categories}
+        self.category_to_instance_to_indices = {category: {} for category in self.all_categories}
+        for index, sketch_path in enumerate(self.all_sketches_path):
+            category = os.path.basename(os.path.dirname(sketch_path))
+            filename = os.path.basename(sketch_path)
+            instance_id = self.instance_id_from_filename(filename)
+            self.category_to_indices.setdefault(category, []).append(index)
+            self.category_to_instance_to_indices.setdefault(category, {}).setdefault(instance_id, []).append(index)
 
     def __len__(self):
         return len(self.all_sketches_path)
@@ -200,6 +223,55 @@ class Sketchy(torch.utils.data.Dataset):
             transforms.Normalize(mean=CLIP_MEAN, std=CLIP_STD)
         ])
         return dataset_transforms
+
+
+class CategoryInstanceBatchSampler(torch.utils.data.Sampler):
+    def __init__(self, dataset, categories_per_batch, instances_per_category):
+        self.dataset = dataset
+        self.categories_per_batch = categories_per_batch
+        self.instances_per_category = instances_per_category
+        self.batch_size = categories_per_batch * instances_per_category
+
+        self.eligible_categories = [
+            category for category in dataset.all_categories
+            if dataset.category_to_instance_to_indices.get(category)
+        ]
+        if not self.eligible_categories:
+            raise ValueError('no eligible categories found for CategoryInstanceBatchSampler')
+
+        self.num_batches = max(1, math.ceil(len(self.dataset) / self.batch_size))
+
+    def __len__(self):
+        return self.num_batches
+
+    def __iter__(self):
+        rng = np.random.default_rng()
+        num_categories = len(self.eligible_categories)
+        category_replace = num_categories < self.categories_per_batch
+
+        for _ in range(self.num_batches):
+            selected_categories = rng.choice(
+                self.eligible_categories,
+                size=self.categories_per_batch,
+                replace=category_replace,
+            ).tolist()
+
+            batch_indices = []
+            for category in selected_categories:
+                instance_to_indices = self.dataset.category_to_instance_to_indices[category]
+                instance_ids = sorted(instance_to_indices.keys())
+                instance_replace = len(instance_ids) < self.instances_per_category
+                selected_instances = rng.choice(
+                    instance_ids,
+                    size=self.instances_per_category,
+                    replace=instance_replace,
+                ).tolist()
+                for instance_id in selected_instances:
+                    candidate_indices = instance_to_indices[instance_id]
+                    batch_indices.append(int(rng.choice(candidate_indices)))
+
+            rng.shuffle(batch_indices)
+            yield batch_indices
 
 
 if __name__ == '__main__':

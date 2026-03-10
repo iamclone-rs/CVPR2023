@@ -8,7 +8,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from src.model_LN_prompt import Model
-from src.dataset_retrieval import Sketchy
+from src.dataset_retrieval import Sketchy, CategoryInstanceBatchSampler
 from experiments.options import opts
 
 def is_legacy_prompt_checkpoint(ckpt_path):
@@ -25,12 +25,29 @@ if __name__ == '__main__':
     else:
         val_dataset = Sketchy(opts, dataset_transforms, mode='val', used_cat=train_dataset.all_categories, return_orig=False)
 
-    train_loader = DataLoader(
-        dataset=train_dataset,
-        batch_size=opts.batch_size,
-        num_workers=opts.workers,
-        shuffle=True,
-        drop_last=False)
+    if opts.triplet_mode == 'batch_hard':
+        expected_batch_size = opts.categories_per_batch * opts.instances_per_category
+        if expected_batch_size != opts.batch_size:
+            raise ValueError(
+                'batch_hard requires batch_size == categories_per_batch * instances_per_category; '
+                'got {} vs {} * {}'.format(opts.batch_size, opts.categories_per_batch, opts.instances_per_category)
+            )
+        train_batch_sampler = CategoryInstanceBatchSampler(
+            dataset=train_dataset,
+            categories_per_batch=opts.categories_per_batch,
+            instances_per_category=opts.instances_per_category,
+        )
+        train_loader = DataLoader(
+            dataset=train_dataset,
+            batch_sampler=train_batch_sampler,
+            num_workers=opts.workers)
+    else:
+        train_loader = DataLoader(
+            dataset=train_dataset,
+            batch_size=opts.batch_size,
+            num_workers=opts.workers,
+            shuffle=True,
+            drop_last=False)
     val_loader = DataLoader(
         dataset=val_dataset,
         batch_size=opts.batch_size,
@@ -79,5 +96,13 @@ if __name__ == '__main__':
         model = Model.load_from_checkpoint(ckpt_path, categories=model_categories)
 
     print('train samples: {}, val samples: {}'.format(len(train_dataset), len(val_dataset)))
+    if opts.triplet_mode == 'batch_hard':
+        print(
+            'batch_hard sampler: {} categories x {} instances -> batch_size {}'.format(
+                opts.categories_per_batch,
+                opts.instances_per_category,
+                opts.batch_size,
+            )
+        )
     print ('beginning training...good luck...')
     trainer.fit(model, train_loader, val_loader, ckpt_path=ckpt_path)
