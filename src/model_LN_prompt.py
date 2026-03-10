@@ -7,6 +7,13 @@ import pytorch_lightning as pl
 from src.clip import clip
 from experiments.options import opts
 
+def category_to_text(category):
+    text = category.replace('_', ' ').replace('-', ' ').strip()
+    if not text:
+        return category
+    article = 'an' if text[0].lower() in 'aeiou' else 'a'
+    return '{} {}'.format(article, text)
+
 def freeze_module(module):
     for param in module.parameters():
         param.requires_grad_(False)
@@ -77,7 +84,7 @@ class Model(pl.LightningModule):
 
         self.train_categories = sorted(categories)
         self.category_to_idx = {category: idx for idx, category in enumerate(self.train_categories)}
-        class_prompts = [f'a photo of a {category}' for category in self.train_categories]
+        class_prompts = [f'a photo of {category_to_text(category)}' for category in self.train_categories]
         self.register_buffer('class_tokens', clip.tokenize(class_prompts), persistent=False)
 
         self.distance_fn = lambda x, y: 1.0 - F.cosine_similarity(x, y)
@@ -218,20 +225,27 @@ class Model(pl.LightningModule):
     def on_train_epoch_end(self):
         metrics = self.trainer.callback_metrics
         train_triplet = metrics.get('train_triplet_loss')
+        train_cls = metrics.get('train_cls_loss')
+        train_patch = metrics.get('train_patch_shuffle_loss')
         train_loss = metrics.get('train_loss')
         train_pos = metrics.get('train_pos_sim')
         train_neg = metrics.get('train_neg_sim')
         train_gap = metrics.get('train_margin_gap')
         if None not in (train_triplet, train_loss, train_pos, train_neg, train_gap):
-            print(
-                'Train: loss={:.4f}, triplet={:.4f}, pos_sim={:.4f}, neg_sim={:.4f}, gap={:.4f}'.format(
-                    train_loss.item(),
-                    train_triplet.item(),
-                    train_pos.item(),
-                    train_neg.item(),
-                    train_gap.item(),
-                )
+            summary = 'Train: loss={:.4f}, triplet={:.4f}'.format(
+                train_loss.item(),
+                train_triplet.item(),
             )
+            if train_cls is not None:
+                summary += ', cls={:.4f}'.format(train_cls.item())
+            if train_patch is not None:
+                summary += ', patch={:.4f}'.format(train_patch.item())
+            summary += ', pos_sim={:.4f}, neg_sim={:.4f}, gap={:.4f}'.format(
+                train_pos.item(),
+                train_neg.item(),
+                train_gap.item(),
+            )
+            print(summary)
 
     def on_validation_epoch_start(self):
         self.validation_outputs = []
