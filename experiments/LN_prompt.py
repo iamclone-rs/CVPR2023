@@ -20,7 +20,10 @@ if __name__ == '__main__':
     dataset_transforms = Sketchy.data_transform(opts)
 
     train_dataset = Sketchy(opts, dataset_transforms, mode='train', return_orig=False)
-    val_dataset = Sketchy(opts, dataset_transforms, mode='val', used_cat=train_dataset.all_categories, return_orig=False)
+    if opts.debug_use_train_split_for_val:
+        val_dataset = Sketchy(opts, dataset_transforms, mode='train', return_orig=False)
+    else:
+        val_dataset = Sketchy(opts, dataset_transforms, mode='val', used_cat=train_dataset.all_categories, return_orig=False)
 
     train_loader = DataLoader(
         dataset=train_dataset,
@@ -75,5 +78,6 @@ if __name__ == '__main__':
         print ('resuming training from %s'%ckpt_path)
         model = Model.load_from_checkpoint(ckpt_path, categories=model_categories)
 
+    print('train samples: {}, val samples: {}'.format(len(train_dataset), len(val_dataset)))
     print ('beginning training...good luck...')
     trainer.fit(model, train_loader, val_loader, ckpt_path=ckpt_path)

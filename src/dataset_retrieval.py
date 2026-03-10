@@ -41,7 +41,7 @@ class Sketchy(torch.utils.data.Dataset):
         self.transform = transform
         self.return_orig = return_orig
 
-        self.all_categories = os.listdir(os.path.join(self.opts.data_dir, 'sketch'))
+        self.all_categories = sorted(os.listdir(os.path.join(self.opts.data_dir, 'sketch')))
         if '.ipynb_checkpoints' in self.all_categories:
             self.all_categories.remove('.ipynb_checkpoints')
             
@@ -62,13 +62,59 @@ class Sketchy(torch.utils.data.Dataset):
         self.photo_stem_to_paths = {}
 
         for category in self.all_categories:
-            self.all_sketches_path.extend(glob.glob(os.path.join(self.opts.data_dir, 'sketch', category, '*.png')))
-            photo_paths = glob.glob(os.path.join(self.opts.data_dir, 'photo', category, '*.jpg'))
+            self.all_sketches_path.extend(sorted(glob.glob(os.path.join(self.opts.data_dir, 'sketch', category, '*.png'))))
+            photo_paths = sorted(glob.glob(os.path.join(self.opts.data_dir, 'photo', category, '*.jpg')))
             self.all_photos_path[category] = photo_paths
             self.photo_stem_to_paths[category] = {}
             for photo_path in photo_paths:
                 photo_stem = os.path.splitext(os.path.basename(photo_path))[0]
                 self.photo_stem_to_paths[category].setdefault(photo_stem, []).append(photo_path)
+        self.apply_debug_filters()
+
+    def apply_debug_filters(self):
+        debug_category = getattr(self.opts, 'debug_category', '').strip()
+        debug_num_categories = max(0, int(getattr(self.opts, 'debug_num_categories', 0)))
+        debug_num_photos_per_category = max(0, int(getattr(self.opts, 'debug_num_photos_per_category', 0)))
+        debug_num_sketches_per_category = max(0, int(getattr(self.opts, 'debug_num_sketches_per_category', 0)))
+
+        if debug_category:
+            self.all_categories = [category for category in self.all_categories if category == debug_category]
+        elif debug_num_categories > 0:
+            self.all_categories = self.all_categories[:debug_num_categories]
+
+        if not self.all_categories:
+            self.all_sketches_path = []
+            self.all_photos_path = {}
+            self.photo_stem_to_paths = {}
+            return
+
+        filtered_photos_path = {}
+        filtered_photo_stem_to_paths = {}
+        for category in self.all_categories:
+            photo_paths = list(self.all_photos_path[category])
+            if debug_num_photos_per_category > 0:
+                photo_paths = photo_paths[:debug_num_photos_per_category]
+            filtered_photos_path[category] = photo_paths
+            filtered_photo_stem_to_paths[category] = {}
+            for photo_path in photo_paths:
+                photo_stem = os.path.splitext(os.path.basename(photo_path))[0]
+                filtered_photo_stem_to_paths[category].setdefault(photo_stem, []).append(photo_path)
+
+        sketches_by_category = {category: [] for category in self.all_categories}
+        for sketch_path in self.all_sketches_path:
+            category = os.path.basename(os.path.dirname(sketch_path))
+            if category in sketches_by_category:
+                sketches_by_category[category].append(sketch_path)
+        filtered_sketches_path = []
+        for category in self.all_categories:
+            sketch_paths = sketches_by_category[category]
+            if debug_num_sketches_per_category > 0:
+                sketch_paths = sketch_paths[:debug_num_sketches_per_category]
+            filtered_sketches_path.extend(sketch_paths)
+
+        self.all_sketches_path = filtered_sketches_path
+        self.all_photos_path = filtered_photos_path
+        self.photo_stem_to_paths = filtered_photo_stem_to_paths
 
     def __len__(self):
         return len(self.all_sketches_path)

@@ -32,6 +32,11 @@ parser.add_argument('--workers', type=int, default=4)
 parser.add_argument('--triplet_mode', type=str, default='hard', choices=['category', 'hard'])
 parser.add_argument('--match_instance_by_stem', dest='match_instance_by_stem', action='store_true')
 parser.add_argument('--no_match_instance_by_stem', dest='match_instance_by_stem', action='store_false')
+parser.add_argument('--debug_category', type=str, default='')
+parser.add_argument('--debug_num_categories', type=int, default=0)
+parser.add_argument('--debug_num_photos_per_category', type=int, default=0)
+parser.add_argument('--debug_num_sketches_per_category', type=int, default=0)
+parser.add_argument('--debug_use_train_split_for_val', action='store_true')
 
 # ----------------------
 # ViT Prompt Parameters
