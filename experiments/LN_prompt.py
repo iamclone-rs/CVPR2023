@@ -59,7 +59,7 @@ if __name__ == '__main__':
     accelerator = 'gpu' if torch.cuda.is_available() else 'cpu'
     trainer = Trainer(accelerator=accelerator,
         devices=1,
-        min_epochs=1, max_epochs=60,
+        min_epochs=1, max_epochs=opts.max_epochs,
         benchmark=True,
         logger=logger,
         enable_progress_bar=False,

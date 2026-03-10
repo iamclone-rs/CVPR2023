@@ -24,7 +24,7 @@ def build_opts(args):
     )
 
 
-def evaluate_fine_grained(model, dataloader, device):
+def evaluate_fine_grained(model, dataloader, device, query_source='sketch'):
     query_features = []
     gallery_features = []
     categories = []
@@ -43,7 +43,12 @@ def evaluate_fine_grained(model, dataloader, device):
             sk_feat = F.normalize(model.encode_image(sk_tensor), dim=-1)
             img_feat = F.normalize(model.encode_image(img_tensor), dim=-1)
 
-            query_features.append(sk_feat.cpu())
+            if query_source == 'sketch':
+                query_features.append(sk_feat.cpu())
+            elif query_source == 'photo':
+                query_features.append(img_feat.cpu())
+            else:
+                raise ValueError('unsupported query_source: {}'.format(query_source))
             gallery_features.append(img_feat.cpu())
             categories.extend(category)
             query_instance_ids.extend(query_instance_id)
@@ -97,6 +102,7 @@ def main():
     parser = argparse.ArgumentParser(description='Evaluate frozen CLIP on FG-SBIR retrieval metric')
     parser.add_argument('--data_dir', type=str, required=True)
     parser.add_argument('--split', type=str, default='val', choices=['train', 'val'])
+    parser.add_argument('--query_source', type=str, default='sketch', choices=['sketch', 'photo'])
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--workers', type=int, default=4)
     parser.add_argument('--max_size', type=int, default=224)
@@ -131,8 +137,9 @@ def main():
     model, _ = clip.load('ViT-B/32', device=device)
     model.eval()
 
-    acc1, acc5 = evaluate_fine_grained(model, dataloader, device)
+    acc1, acc5 = evaluate_fine_grained(model, dataloader, device, query_source=args.query_source)
     print('split: {}'.format(args.split))
+    print('query_source: {}'.format(args.query_source))
     print('samples: {}'.format(len(dataset)))
     print('categories: {}'.format(len(dataset.all_categories)))
     print('Frozen CLIP Acc@1: {:.4f}, Acc@5: {:.4f}'.format(acc1, acc5))
